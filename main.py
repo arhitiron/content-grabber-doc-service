@@ -1,14 +1,14 @@
-import json
 import logging
 import os
 import time
+
 from bs4 import BeautifulSoup
 
 from consumer import Consumer
 from doc_extractor import DocExtractor
 from dto.raw_data_dto import RawDataDto
 from producer import Producer
-from resource_provider import ResourceProvider
+from raw_data_provider import RawDataProvider
 
 ADDR = os.environ['ADDRESS']
 KAFKA_ADDR = os.environ['KAFKA_ADDRESS']
@@ -22,10 +22,10 @@ class DocService(object):
     # TODO: add default values
     def __init__(self, kafka_addr, link_queue_topic, raw_queue_topic,
                  doc_queue_topic, resource_cache_address):
-        self._link_consumer = Consumer(kafka_addr, link_queue_topic)
         self._raw_data_producer = Producer(kafka_addr, raw_queue_topic)
         self._doc_producer = Producer(kafka_addr, doc_queue_topic)
-        self._resource_provider = ResourceProvider(resource_cache_address)
+        self._link_consumer = Consumer(kafka_addr, link_queue_topic)
+        self._raw_data_provider = RawDataProvider(resource_cache_address)
 
         self.serve()
 
@@ -37,22 +37,22 @@ class DocService(object):
 
     def handle_link(self, link):
         logging.log(logging.INFO, "Handle link: " + link)
-        raw_data = self._resource_provider.get_resource(link)
+        raw_data = self._raw_data_provider.get_data(link)
         parser_raw_data = BeautifulSoup(raw_data)
         extractor = DocExtractor(parser_raw_data)
         if extractor.is_document():
             doc = extractor.get_document()
-            logging.log(logging.INFO, "It's a doc:")
-            logging.log(logging.INFO, doc)
+            doc.url = link
             self._doc_producer.add_message(doc)
         else:
-            raw_data_dto = RawDataDto(raw_data)
+            raw_data_dto = RawDataDto(raw_data, link)
             self._raw_data_producer.add_message(raw_data_dto)
 
 
 def main():
-    DocService(KAFKA_ADDR, LINK_QUEUE_TOPIC, RAW_QUEUE_TOPIC,
-               DOC_QUEUE_TOPIC, RESOURCE_CACHE_ADDRESS)
+    DocService(kafka_addr=KAFKA_ADDR, link_queue_topic=LINK_QUEUE_TOPIC, raw_queue_topic=RAW_QUEUE_TOPIC,
+               doc_queue_topic=DOC_QUEUE_TOPIC, resource_cache_address=RESOURCE_CACHE_ADDRESS)
+
     # TODO: change to long time leave
     while True:
         time.sleep(20)
